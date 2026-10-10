@@ -1,0 +1,6 @@
+simulation/*
+*.vcd
+*.fst
+*.vvp
+*.o
+*.exe

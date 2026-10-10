@@ -1,0 +1,372 @@
+
+module pipelined_cpu (
+    input logic clk,
+    input logic rst
+);
+
+    localparam logic [31:0] NOP = 32'h00000013;
+
+    // =====================================================
+    // IF: INSTRUCTION FETCH
+    // =====================================================
+
+    logic [31:0] pc;
+    logic [31:0] instruction_raw;
+    logic [31:0] instruction_if;
+    logic [31:0] next_pc;
+
+    logic [31:0] if_id_pc;
+    logic [31:0] if_id_instruction;
+
+    logic load_use_hazard;
+    logic branch_taken;
+    logic [31:0] branch_target;
+
+    assign next_pc = branch_taken ? branch_target : pc + 32'd4;
+
+    program_counter pc_unit (
+        .clk(clk),
+        .rst(rst),
+        .next_pc(load_use_hazard && !branch_taken ? pc : next_pc),
+        .pc(pc)
+    );
+
+    instruction_memory imem (
+        .address(pc),
+        .instruction(instruction_raw)
+    );
+
+    // The supplied instruction memory contains five
+    // program instructions. Fetch NOPs after that program.
+    assign instruction_if =
+        (pc[9:2] <= 4) ? instruction_raw : NOP;
+
+    // IF/ID: hold on a load-use hazard and flush on branch.
+    always_ff @(posedge clk) begin
+        if (rst || branch_taken) begin
+            if_id_pc          <= 32'b0;
+            if_id_instruction <= NOP;
+        end
+        else if (!load_use_hazard) begin
+            if_id_pc          <= pc;
+            if_id_instruction <= instruction_if;
+        end
+    end
+
+    // =====================================================
+    // ID: INSTRUCTION DECODE
+    // =====================================================
+
+    logic [6:0] opcode_id;
+    logic [4:0] rs1_id, rs2_id, rd_id;
+    logic [2:0] funct3_id;
+    logic funct7_id;
+
+    logic reg_write_id;
+    logic mem_read_id;
+    logic mem_write_id;
+    logic alu_src_id;
+    logic mem_to_reg_id;
+    logic branch_id;
+    logic [1:0] alu_op_id;
+
+    logic [31:0] immediate_id;
+    logic [31:0] rd1_id, rd2_id;
+
+    assign opcode_id = if_id_instruction[6:0];
+    assign rd_id     = if_id_instruction[11:7];
+    assign funct3_id = if_id_instruction[14:12];
+    assign rs1_id    = if_id_instruction[19:15];
+    assign rs2_id    = if_id_instruction[24:20];
+    assign funct7_id = if_id_instruction[30];
+
+    control_unit control (
+        .opcode(opcode_id),
+        .reg_write(reg_write_id),
+        .mem_read(mem_read_id),
+        .mem_write(mem_write_id),
+        .alu_src(alu_src_id),
+        .mem_to_reg(mem_to_reg_id),
+        .branch(branch_id),
+        .alu_op(alu_op_id)
+    );
+
+    immediate_generator imm_gen (
+        .instruction(if_id_instruction),
+        .immediate(immediate_id)
+    );
+
+    // Internal register file allows direct testbench checks.
+    logic [31:0] regfile [0:31];
+    integer i;
+
+    logic [31:0] write_back_data;
+    logic [4:0] rd_wb;
+    logic reg_write_wb;
+    logic mem_to_reg_wb;
+    logic [31:0] alu_result_wb;
+    logic [31:0] memory_data_wb;
+
+    assign rd1_id = (rs1_id == 0) ? 32'b0 : regfile[rs1_id];
+    assign rd2_id = (rs2_id == 0) ? 32'b0 : regfile[rs2_id];
+
+    assign write_back_data =
+        mem_to_reg_wb ? memory_data_wb : alu_result_wb;
+
+    always_ff @(posedge clk) begin
+        if (rst) begin
+            for (i = 0; i < 32; i = i + 1)
+                regfile[i] <= 32'b0;
+        end
+        else if (reg_write_wb && (rd_wb != 0)) begin
+            regfile[rd_wb] <= write_back_data;
+        end
+    end
+
+    // =====================================================
+    // ID/EX PIPELINE REGISTER
+    // =====================================================
+
+    logic [31:0] id_ex_pc;
+    logic [31:0] id_ex_rd1, id_ex_rd2, id_ex_imm;
+    logic [4:0] id_ex_rs1, id_ex_rs2, id_ex_rd;
+    logic [2:0] id_ex_funct3;
+    logic id_ex_funct7;
+
+    logic id_ex_reg_write;
+    logic id_ex_mem_read;
+    logic id_ex_mem_write;
+    logic id_ex_alu_src;
+    logic id_ex_mem_to_reg;
+    logic id_ex_branch;
+    logic [1:0] id_ex_alu_op;
+
+    // Decode which source operands the current instruction uses.
+    logic uses_rs1_id, uses_rs2_id;
+
+    always_comb begin
+        uses_rs1_id = 1'b0;
+        uses_rs2_id = 1'b0;
+
+        case (opcode_id)
+            7'b0110011: begin // R-type
+                uses_rs1_id = 1'b1;
+                uses_rs2_id = 1'b1;
+            end
+            7'b0010011,    // I-type ALU
+            7'b0000011:    // Load
+                uses_rs1_id = 1'b1;
+            7'b0100011: begin // Store
+                uses_rs1_id = 1'b1;
+                uses_rs2_id = 1'b1;
+            end
+            7'b1100011: begin // Branch
+                uses_rs1_id = 1'b1;
+                uses_rs2_id = 1'b1;
+            end
+            default: begin
+                uses_rs1_id = 1'b0;
+                uses_rs2_id = 1'b0;
+            end
+        endcase
+    end
+
+    assign load_use_hazard =
+        id_ex_mem_read &&
+        (id_ex_rd != 0) &&
+        ((uses_rs1_id && (id_ex_rd == rs1_id)) ||
+         (uses_rs2_id && (id_ex_rd == rs2_id)));
+
+    // Insert a bubble when the instruction must wait.
+    always_ff @(posedge clk) begin
+        if (rst || load_use_hazard || branch_taken) begin
+            id_ex_pc        <= 32'b0;
+            id_ex_rd1       <= 32'b0;
+            id_ex_rd2       <= 32'b0;
+            id_ex_imm       <= 32'b0;
+            id_ex_rs1       <= 5'b0;
+            id_ex_rs2       <= 5'b0;
+            id_ex_rd        <= 5'b0;
+            id_ex_funct3    <= 3'b0;
+            id_ex_funct7    <= 1'b0;
+            id_ex_reg_write <= 1'b0;
+            id_ex_mem_read  <= 1'b0;
+            id_ex_mem_write <= 1'b0;
+            id_ex_alu_src   <= 1'b0;
+            id_ex_mem_to_reg <= 1'b0;
+            id_ex_branch    <= 1'b0;
+            id_ex_alu_op    <= 2'b0;
+        end
+        else begin
+            id_ex_pc         <= if_id_pc;
+            id_ex_rd1        <= rd1_id;
+            id_ex_rd2        <= rd2_id;
+            id_ex_imm        <= immediate_id;
+            id_ex_rs1        <= rs1_id;
+            id_ex_rs2        <= rs2_id;
+            id_ex_rd         <= rd_id;
+            id_ex_funct3     <= funct3_id;
+            id_ex_funct7     <= funct7_id;
+            id_ex_reg_write  <= reg_write_id;
+            id_ex_mem_read   <= mem_read_id;
+            id_ex_mem_write  <= mem_write_id;
+            id_ex_alu_src    <= alu_src_id;
+            id_ex_mem_to_reg <= mem_to_reg_id;
+            id_ex_branch     <= branch_id;
+            id_ex_alu_op     <= alu_op_id;
+        end
+    end
+
+    // =====================================================
+    // EX: EXECUTE + FORWARDING
+    // =====================================================
+
+    logic [2:0] alu_control_ex;
+    logic [31:0] alu_input_a_ex;
+    logic [31:0] alu_input_b_ex;
+    logic [31:0] alu_result_ex;
+    logic [31:0] store_data_ex;
+
+    logic [1:0] forward_a, forward_b;
+
+    logic [31:0] ex_mem_alu_result;
+    logic [31:0] ex_mem_write_data;
+    logic [4:0] ex_mem_rd;
+    logic ex_mem_reg_write;
+    logic ex_mem_mem_read;
+    logic ex_mem_mem_write;
+    logic ex_mem_mem_to_reg;
+
+    alu_control alu_ctrl (
+        .alu_op(id_ex_alu_op),
+        .funct3(id_ex_funct3),
+        .funct7_bit(id_ex_funct7),
+        .alu_control(alu_control_ex)
+    );
+
+    always_comb begin
+        forward_a = 2'b00;
+        forward_b = 2'b00;
+
+        // Prefer the newest available result.
+        if (ex_mem_reg_write &&
+            !ex_mem_mem_to_reg &&
+            (ex_mem_rd != 0) &&
+            (ex_mem_rd == id_ex_rs1))
+            forward_a = 2'b10;
+        else if (reg_write_wb &&
+                 (rd_wb != 0) &&
+                 (rd_wb == id_ex_rs1))
+            forward_a = 2'b01;
+
+        if (ex_mem_reg_write &&
+            !ex_mem_mem_to_reg &&
+            (ex_mem_rd != 0) &&
+            (ex_mem_rd == id_ex_rs2))
+            forward_b = 2'b10;
+        else if (reg_write_wb &&
+                 (rd_wb != 0) &&
+                 (rd_wb == id_ex_rs2))
+            forward_b = 2'b01;
+    end
+
+    always_comb begin
+        case (forward_a)
+            2'b10: alu_input_a_ex = ex_mem_alu_result;
+            2'b01: alu_input_a_ex = write_back_data;
+            default: alu_input_a_ex = id_ex_rd1;
+        endcase
+
+        case (forward_b)
+            2'b10: store_data_ex = ex_mem_alu_result;
+            2'b01: store_data_ex = write_back_data;
+            default: store_data_ex = id_ex_rd2;
+        endcase
+    end
+
+    assign alu_input_b_ex =
+        id_ex_alu_src ? id_ex_imm : store_data_ex;
+
+    alu alu_unit (
+        .A(alu_input_a_ex),
+        .B(alu_input_b_ex),
+        .ALUControl(alu_control_ex),
+        .Result(alu_result_ex)
+    );
+
+    // This first version implements BEQ branch decisions.
+    assign branch_taken =
+        id_ex_branch && (alu_result_ex == 32'b0);
+
+    assign branch_target = id_ex_pc + id_ex_imm;
+
+    // =====================================================
+    // EX/MEM PIPELINE REGISTER
+    // =====================================================
+
+    logic [31:0] ex_mem_alu_result_next;
+    logic [31:0] ex_mem_write_data_next;
+    logic [4:0] ex_mem_rd_next;
+    logic ex_mem_reg_write_next;
+    logic ex_mem_mem_read_next;
+    logic ex_mem_mem_write_next;
+    logic ex_mem_mem_to_reg_next;
+
+    always_ff @(posedge clk) begin
+        if (rst) begin
+            ex_mem_alu_result <= 32'b0;
+            ex_mem_write_data <= 32'b0;
+            ex_mem_rd          <= 5'b0;
+            ex_mem_reg_write   <= 1'b0;
+            ex_mem_mem_read    <= 1'b0;
+            ex_mem_mem_write   <= 1'b0;
+            ex_mem_mem_to_reg  <= 1'b0;
+        end
+        else begin
+            ex_mem_alu_result <= alu_result_ex;
+            ex_mem_write_data <= store_data_ex;
+            ex_mem_rd          <= id_ex_rd;
+            ex_mem_reg_write   <= id_ex_reg_write;
+            ex_mem_mem_read    <= id_ex_mem_read;
+            ex_mem_mem_write   <= id_ex_mem_write;
+            ex_mem_mem_to_reg  <= id_ex_mem_to_reg;
+        end
+    end
+
+    // =====================================================
+    // MEM: DATA MEMORY
+    // =====================================================
+
+    logic [31:0] memory_read_data_mem;
+
+    data_memory dmem (
+        .clk(clk),
+        .mem_read(ex_mem_mem_read),
+        .mem_write(ex_mem_mem_write),
+        .address(ex_mem_alu_result),
+        .write_data(ex_mem_write_data),
+        .read_data(memory_read_data_mem)
+    );
+
+    // =====================================================
+    // MEM/WB PIPELINE REGISTER
+    // =====================================================
+
+    always_ff @(posedge clk) begin
+        if (rst) begin
+            alu_result_wb  <= 32'b0;
+            memory_data_wb <= 32'b0;
+            rd_wb          <= 5'b0;
+            reg_write_wb   <= 1'b0;
+            mem_to_reg_wb  <= 1'b0;
+        end
+        else begin
+            alu_result_wb  <= ex_mem_alu_result;
+            memory_data_wb <= memory_read_data_mem;
+            rd_wb          <= ex_mem_rd;
+            reg_write_wb   <= ex_mem_reg_write;
+            mem_to_reg_wb  <= ex_mem_mem_to_reg;
+        end
+    end
+
+endmodule
