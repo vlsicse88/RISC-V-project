@@ -1,20 +1,13 @@
 module pipelined_cpu #(
-
-    parameter bit FORWARDING_TEST = 1'b0,
-
-    parameter bit LOAD_HAZARD_TEST = 1'b0,
-
-    parameter bit BRANCH_TEST = 1'b0
-
+   parameter bit FORWARDING_TEST = 1'b0,
+parameter bit LOAD_HAZARD_TEST = 1'b0,
+parameter bit BRANCH_TEST = 1'b0,
+parameter bit BRANCH_NOT_TAKEN_TEST = 1'b0,
+parameter bit BRANCH_FORWARDING_TEST = 1'b0
 ) (
-
     input logic clk,
-
     input logic rst
-
 );
-
-
 
     localparam logic [31:0] NOP = 32'h00000013;
 
@@ -133,6 +126,67 @@ module pipelined_cpu #(
 
 
             assign instruction_if = instruction_raw;
+
+
+end else if (BRANCH_FORWARDING_TEST) begin : branch_forwarding_program
+
+    always_comb begin
+        case (pc[9:2])
+            8'd0: instruction_raw = 32'h00500093; // ADDI x1,x0,5
+            8'd1: instruction_raw = 32'h00300113; // ADDI x2,x0,3
+            8'd2: instruction_raw = NOP;
+            8'd3: instruction_raw = NOP;
+            8'd4: instruction_raw = 32'h00208463; // BEQ x1,x2,+8
+            8'd5: instruction_raw = 32'h00700193; // ADDI x3,x0,7
+            8'd6: instruction_raw = 32'h00900213; // ADDI x4,x0,9
+            default: instruction_raw = NOP;
+        endcase
+    end
+
+    assign instruction_if = instruction_raw;
+
+    always_comb begin
+        case (pc[9:2])
+            8'd0: instruction_raw = 32'h00500093; // ADDI x1,x0,5
+            8'd1: instruction_raw = 32'h00500113; // ADDI x2,x0,5
+            8'd2: instruction_raw = 32'h00208463; // BEQ x1,x2,+8
+            8'd3: instruction_raw = 32'h06300193; // ADDI x3,x0,99 (must flush)
+            8'd4: instruction_raw = 32'h00700193; // ADDI x3,x0,7 (branch target)
+            8'd5: instruction_raw = 32'h00900213; // ADDI x4,x0,9
+            default: instruction_raw = NOP;
+        endcase
+    end
+
+    assign instruction_if = instruction_raw;
+
+    always_comb begin
+        case (pc[9:2])
+            8'd0: instruction_raw = 32'h00500093; // ADDI x1,x0,5
+            8'd1: instruction_raw = 32'h00300113; // ADDI x2,x0,3
+            8'd2: instruction_raw = 32'h00208463; // BEQ x1,x2,+8
+            8'd3: instruction_raw = 32'h06300193; // ADDI x3,x0,99 (must flush)
+            8'd4: instruction_raw = 32'h00700193; // ADDI x3,x0,7 (branch target)
+            8'd5: instruction_raw = 32'h00900213; // ADDI x4,x0,9
+            default: instruction_raw = NOP;
+        endcase
+    end
+    assign instruction_if = instruction_raw;
+
+
+    always_comb begin
+        case (pc[9:2])
+            8'd0: instruction_raw = 32'h00500093; // ADDI x1,x0,5
+            8'd1: instruction_raw = 32'h00300113; // ADDI x2,x0,3
+            8'd2: instruction_raw = NOP;
+            8'd3: instruction_raw = NOP;
+            8'd4: instruction_raw = 32'h00208463; // BEQ x1,x2,+8
+            8'd5: instruction_raw = 32'h00700193; // ADDI x3,x0,7
+            8'd6: instruction_raw = 32'h00900213; // ADDI x4,x0,9
+            default: instruction_raw = NOP;
+        endcase
+    end
+
+    assign instruction_if = instruction_raw;
 
 
 
@@ -328,10 +382,13 @@ module pipelined_cpu #(
 
 
 
-    assign rd1_id = (rs1_id == 0) ? 32'b0 : regfile[rs1_id];
+   assign rd1_id = (rs1_id == 0) ? 32'b0 :
+                (reg_write_wb && rd_wb == rs1_id) ? write_back_data :
+                regfile[rs1_id];
 
-    assign rd2_id = (rs2_id == 0) ? 32'b0 : regfile[rs2_id];
-
+assign rd2_id = (rs2_id == 0) ? 32'b0 :
+                (reg_write_wb && rd_wb == rs2_id) ? write_back_data :
+                regfile[rs2_id];
 
 
     assign write_back_data =
@@ -702,9 +759,12 @@ module pipelined_cpu #(
 
 
 
-    assign branch_taken =
-
-        id_ex_branch && (alu_result_ex == 32'b0);
+   assign branch_taken =
+    id_ex_branch &&
+    (
+        (id_ex_funct3 == 3'b000 && alu_result_ex == 32'b0) ||
+        (id_ex_funct3 == 3'b001 && alu_result_ex != 32'b0)
+    );
 
 
 

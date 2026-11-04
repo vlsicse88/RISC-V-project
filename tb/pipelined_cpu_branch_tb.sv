@@ -1,6 +1,10 @@
 `timescale 1ns/1ps
 
 module pipelined_cpu_branch_tb;
+    initial begin
+        $dumpfile("simulation/branch_test.vcd");
+        $dumpvars(0, pipelined_cpu_branch_tb);
+    end
     logic clk;
     logic rst;
 

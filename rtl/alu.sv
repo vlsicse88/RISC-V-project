@@ -13,7 +13,7 @@ module alu (
             3'b010: Result = A & B;
             3'b011: Result = A | B;
             3'b100: Result = A ^ B;
-            3'b101: Result = (A < B) ? 32'b1 : 32'b0;
+            3'b101: Result = ($signed(A) < $signed(B)) ? 32'b1 : 32'b0;
 
             default: Result = 32'b0;
 

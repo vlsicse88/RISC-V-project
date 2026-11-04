@@ -1,3 +1,4 @@
+
 `timescale 1ns/1ps
 
 module alu_tb;
@@ -7,7 +8,8 @@ module alu_tb;
     logic [2:0]  ALUControl;
     logic [31:0] Result;
 
-    // Connect our ALU to the testbench
+    integer errors = 0;
+
     alu uut (
         .A(A),
         .B(B),
@@ -15,52 +17,48 @@ module alu_tb;
         .Result(Result)
     );
 
+    task check(
+        input string name,
+        input logic [31:0] got,
+        input logic [31:0] expected
+    );
+        begin
+            if (got !== expected) begin
+                $display("FAIL: %s got=%0d expected=%0d",
+                         name, got, expected);
+                errors = errors + 1;
+            end else begin
+                $display("PASS: %s = %0d", name, got);
+            end
+        end
+    endtask
+
     initial begin
+        A = 10; B = 5; ALUControl = 3'b000;
+        #10; check("ADD", Result, 32'd15);
 
-        // Test 1: ADD
-        A = 10;
-        B = 5;
-        ALUControl = 3'b000;
-        #10;
-        $display("ADD: A=%0d B=%0d Result=%0d", A, B, Result);
+        A = 10; B = 5; ALUControl = 3'b001;
+        #10; check("SUB", Result, 32'd5);
 
-        // Test 2: SUB
-        A = 10;
-        B = 5;
-        ALUControl = 3'b001;
-        #10;
-        $display("SUB: A=%0d B=%0d Result=%0d", A, B, Result);
+        A = 8; B = 4; ALUControl = 3'b010;
+        #10; check("AND", Result, 32'd0);
 
-        // Test 3: AND
-        A = 8;
-        B = 4;
-        ALUControl = 3'b010;
-        #10;
-        $display("AND: A=%0d B=%0d Result=%0d", A, B, Result);
+        A = 8; B = 4; ALUControl = 3'b011;
+        #10; check("OR", Result, 32'd12);
 
-        // Test 4: OR
-        A = 8;
-        B = 4;
-        ALUControl = 3'b011;
-        #10;
-        $display("OR: A=%0d B=%0d Result=%0d", A, B, Result);
+        A = 8; B = 4; ALUControl = 3'b100;
+        #10; check("XOR", Result, 32'd12);
 
-        // Test 5: XOR
-        A = 8;
-        B = 4;
-        ALUControl = 3'b100;
-        #10;
-        $display("XOR: A=%0d B=%0d Result=%0d", A, B, Result);
+        A = 5; B = 10; ALUControl = 3'b101;
+        #10; check("SLT", Result, 32'd1);
 
-        // Test 6: SLT
-        A = 5;
-        B = 10;
-        ALUControl = 3'b101;
-        #10;
-        $display("SLT: A=%0d B=%0d Result=%0d", A, B, Result);
-
-        $finish;
-
+        if (errors == 0) begin
+            $display("PASS: All ALU checks succeeded.");
+            $finish;
+        end else begin
+            $display("FAIL: %0d ALU check(s) failed.", errors);
+            $fatal(1, "ALU test failed");
+        end
     end
 
 endmodule

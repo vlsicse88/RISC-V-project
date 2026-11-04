@@ -1,100 +1,66 @@
+
 `timescale 1ns/1ps
 
 module alu_control_tb;
 
-    logic [1:0] alu_op;
+    logic [1:0] ALUOp;
     logic [2:0] funct3;
-    logic       funct7_bit;
-    logic [2:0] alu_control;
+    logic [6:0] funct7;
+    logic [3:0] ALUControl;
+
+    integer errors = 0;
 
     alu_control uut (
-        .alu_op(alu_op),
+        .ALUOp(ALUOp),
         .funct3(funct3),
-        .funct7_bit(funct7_bit),
-        .alu_control(alu_control)
+        .funct7(funct7),
+        .ALUControl(ALUControl)
     );
 
+    task check(input [3:0] expected, input [8*30-1:0] test_name);
+        begin
+            #10;
+            if (ALUControl !== expected) begin
+                $display("FAIL: %0s expected=%b got=%b",
+                         test_name, expected, ALUControl);
+                errors = errors + 1;
+            end else begin
+                $display("PASS: %0s = %b", test_name, ALUControl);
+            end
+        end
+    endtask
+
     initial begin
+        ALUOp = 2'b10; funct3 = 3'b000; funct7 = 7'b0000000;
+        check(4'b0000, "R-type ADD");
 
-        // R-type ADD
-        alu_op = 2'b10;
-        funct3 = 3'b000;
-        funct7_bit = 1'b0;
-        #10;
-        $display("R-type ADD : alu_control = %b", alu_control);
+        ALUOp = 2'b10; funct3 = 3'b000; funct7 = 7'b0100000;
+        check(4'b0001, "R-type SUB");
 
-        // R-type SUB
-        alu_op = 2'b10;
-        funct3 = 3'b000;
-        funct7_bit = 1'b1;
-        #10;
-        $display("R-type SUB : alu_control = %b", alu_control);
+        ALUOp = 2'b10; funct3 = 3'b111; funct7 = 7'b0000000;
+        check(4'b0010, "R-type AND");
 
-        // R-type AND
-        alu_op = 2'b10;
-        funct3 = 3'b111;
-        funct7_bit = 1'b0;
-        #10;
-        $display("R-type AND : alu_control = %b", alu_control);
+        ALUOp = 2'b10; funct3 = 3'b110; funct7 = 7'b0000000;
+        check(4'b0011, "R-type OR");
 
-        // R-type OR
-        alu_op = 2'b10;
-        funct3 = 3'b110;
-        funct7_bit = 1'b0;
-        #10;
-        $display("R-type OR  : alu_control = %b", alu_control);
+        ALUOp = 2'b10; funct3 = 3'b100; funct7 = 7'b0000000;
+        check(4'b0100, "R-type XOR");
 
-        // R-type XOR
-        alu_op = 2'b10;
-        funct3 = 3'b100;
-        funct7_bit = 1'b0;
-        #10;
-        $display("R-type XOR : alu_control = %b", alu_control);
+        ALUOp = 2'b10; funct3 = 3'b010; funct7 = 7'b0000000;
+        check(4'b0101, "R-type SLT");
 
-        // R-type SLT
-        alu_op = 2'b10;
-        funct3 = 3'b010;
-        funct7_bit = 1'b0;
-        #10;
-        $display("R-type SLT : alu_control = %b", alu_control);
+        ALUOp = 2'b00; funct3 = 3'b000; funct7 = 7'b0000000;
+        check(4'b0000, "LOAD");
 
-        // ADDI
-        alu_op = 2'b11;
-        funct3 = 3'b000;
-        funct7_bit = 1'b0;
-        #10;
-        $display("ADDI        : alu_control = %b", alu_control);
+        ALUOp = 2'b01; funct3 = 3'b000; funct7 = 7'b0000000;
+        check(4'b0001, "BRANCH");
 
-        // ANDI
-        alu_op = 2'b11;
-        funct3 = 3'b111;
-        funct7_bit = 1'b0;
-        #10;
-        $display("ANDI        : alu_control = %b", alu_control);
-
-        // LOAD
-        alu_op = 2'b00;
-        funct3 = 3'b010;
-        funct7_bit = 1'b0;
-        #10;
-        $display("LOAD        : alu_control = %b", alu_control);
-
-        // STORE
-        alu_op = 2'b00;
-        funct3 = 3'b010;
-        funct7_bit = 1'b0;
-        #10;
-        $display("STORE       : alu_control = %b", alu_control);
-
-        // BRANCH
-        alu_op = 2'b01;
-        funct3 = 3'b000;
-        funct7_bit = 1'b0;
-        #10;
-        $display("BRANCH      : alu_control = %b", alu_control);
+        if (errors == 0)
+            $display("PASS: All ALU control checks succeeded.");
+        else
+            $display("FAIL: %0d ALU control checks failed.", errors);
 
         $finish;
-
     end
 
 endmodule
