@@ -3,7 +3,9 @@ module pipelined_cpu #(
 parameter bit LOAD_HAZARD_TEST = 1'b0,
 parameter bit BRANCH_TEST = 1'b0,
 parameter bit BRANCH_NOT_TAKEN_TEST = 1'b0,
-parameter bit BRANCH_FORWARDING_TEST = 1'b0
+parameter bit BRANCH_FORWARDING_TEST = 1'b0,
+
+    parameter bit BNE_TEST = 1'b0
 ) (
     input logic clk,
     input logic rst
@@ -128,65 +130,56 @@ parameter bit BRANCH_FORWARDING_TEST = 1'b0
             assign instruction_if = instruction_raw;
 
 
-end else if (BRANCH_FORWARDING_TEST) begin : branch_forwarding_program
+        end else if (BRANCH_FORWARDING_TEST) begin : branch_forwarding_program
 
-    always_comb begin
-        case (pc[9:2])
-            8'd0: instruction_raw = 32'h00500093; // ADDI x1,x0,5
-            8'd1: instruction_raw = 32'h00300113; // ADDI x2,x0,3
-            8'd2: instruction_raw = NOP;
-            8'd3: instruction_raw = NOP;
-            8'd4: instruction_raw = 32'h00208463; // BEQ x1,x2,+8
-            8'd5: instruction_raw = 32'h00700193; // ADDI x3,x0,7
-            8'd6: instruction_raw = 32'h00900213; // ADDI x4,x0,9
-            default: instruction_raw = NOP;
-        endcase
-    end
+            always_comb begin
+                case (pc[9:2])
+                    8'd0: instruction_raw = 32'h00700193; // ADDI x3,x0,7
+                    8'd1: instruction_raw = 32'h00500093; // ADDI x1,x0,5
+                    8'd2: instruction_raw = 32'h00300113; // ADDI x2,x0,3
+                    8'd3: instruction_raw = 32'h00209463; // BNE x1,x2,+8 (taken, operands forwarded)
+                    8'd4: instruction_raw = 32'h06300193; // ADDI x3,x0,99 (must be flushed)
+                    8'd5: instruction_raw = 32'h00900213; // ADDI x4,x0,9 (branch target)
+                    default: instruction_raw = NOP;
+                endcase
+            end
 
-    assign instruction_if = instruction_raw;
+            assign instruction_if = instruction_raw;
 
-    always_comb begin
-        case (pc[9:2])
-            8'd0: instruction_raw = 32'h00500093; // ADDI x1,x0,5
-            8'd1: instruction_raw = 32'h00500113; // ADDI x2,x0,5
-            8'd2: instruction_raw = 32'h00208463; // BEQ x1,x2,+8
-            8'd3: instruction_raw = 32'h06300193; // ADDI x3,x0,99 (must flush)
-            8'd4: instruction_raw = 32'h00700193; // ADDI x3,x0,7 (branch target)
-            8'd5: instruction_raw = 32'h00900213; // ADDI x4,x0,9
-            default: instruction_raw = NOP;
-        endcase
-    end
+        end else if (BNE_TEST) begin : bne_program
 
-    assign instruction_if = instruction_raw;
+            always_comb begin
+                case (pc[9:2])
+                    8'd0: instruction_raw = 32'h00700193; // ADDI x3,x0,7
+                    8'd1: instruction_raw = 32'h00500093; // ADDI x1,x0,5
+                    8'd2: instruction_raw = 32'h00300113; // ADDI x2,x0,3
+                    8'd3: instruction_raw = NOP;
+                    8'd4: instruction_raw = NOP;
+                    8'd5: instruction_raw = 32'h00209463; // BNE x1,x2,+8 (taken)
+                    8'd6: instruction_raw = 32'h06300193; // ADDI x3,x0,99 (must be flushed)
+                    8'd7: instruction_raw = 32'h00900213; // ADDI x4,x0,9 (branch target)
+                    default: instruction_raw = NOP;
+                endcase
+            end
 
-    always_comb begin
-        case (pc[9:2])
-            8'd0: instruction_raw = 32'h00500093; // ADDI x1,x0,5
-            8'd1: instruction_raw = 32'h00300113; // ADDI x2,x0,3
-            8'd2: instruction_raw = 32'h00208463; // BEQ x1,x2,+8
-            8'd3: instruction_raw = 32'h06300193; // ADDI x3,x0,99 (must flush)
-            8'd4: instruction_raw = 32'h00700193; // ADDI x3,x0,7 (branch target)
-            8'd5: instruction_raw = 32'h00900213; // ADDI x4,x0,9
-            default: instruction_raw = NOP;
-        endcase
-    end
-    assign instruction_if = instruction_raw;
+            assign instruction_if = instruction_raw;
 
+        end else if (BRANCH_NOT_TAKEN_TEST) begin : branch_not_taken_program
 
-    always_comb begin
-        case (pc[9:2])
-            8'd0: instruction_raw = 32'h00500093; // ADDI x1,x0,5
-            8'd1: instruction_raw = 32'h00300113; // ADDI x2,x0,3
-            8'd2: instruction_raw = NOP;
-            8'd3: instruction_raw = NOP;
-            8'd4: instruction_raw = 32'h00208463; // BEQ x1,x2,+8
-            8'd5: instruction_raw = 32'h00700193; // ADDI x3,x0,7
-            8'd6: instruction_raw = 32'h00900213; // ADDI x4,x0,9
-            default: instruction_raw = NOP;
-        endcase
-    end
+            always_comb begin
+                case (pc[9:2])
+                    8'd0: instruction_raw = 32'h00500093; // ADDI x1,x0,5
+                    8'd1: instruction_raw = 32'h00300113; // ADDI x2,x0,3
+                    8'd2: instruction_raw = 32'h00700193; // ADDI x3,x0,7
+                    8'd3: instruction_raw = NOP;
+                    8'd4: instruction_raw = NOP;
+                    8'd5: instruction_raw = 32'h00208463; // BEQ x1,x2,+8 (NOT taken, 5 != 3)
+                    8'd6: instruction_raw = 32'h00900213; // ADDI x4,x0,9 (must execute)
+                    default: instruction_raw = NOP;
+                endcase
+            end
 
-    assign instruction_if = instruction_raw;
+            assign instruction_if = instruction_raw;
 
 
 

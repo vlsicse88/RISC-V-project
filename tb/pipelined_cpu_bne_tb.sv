@@ -7,7 +7,7 @@ module pipelined_cpu_bne_tb;
     logic rst;
 
     pipelined_cpu #(
-        .BRANCH_NOT_TAKEN_TEST(1'b1)
+        .BNE_TEST(1'b1)
     ) uut (
         .clk(clk),
         .rst(rst)
